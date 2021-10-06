@@ -123,17 +123,41 @@ for i in range(0,len(feat_to_check_num)):
     else:   
         res_step2_data = res_step2_data[res_step2_data[feat_to_check_num[i]].between(actual_val - r, actual_val + r)]
 
-res_data = res_step2_data
+res_step3_data = res_step2_data
+
+#remove no.s, do stemming  since data is large (FROM DESCRIPTION)
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import SnowballStemmer
+
+stopword = stopwords.words('english')
+snowball_stemmer = SnowballStemmer(language = 'english')
+
+import re
+
+# preprocessing descrption data column
+
+def preprocess_description(text):
+    text = re.sub(r'\d+\s*', ' ', text)  #remove numeric text
+    word_tokens = nltk.word_tokenize(text)
+    stemmed_word = [snowball_stemmer.stem(word) for word in word_tokens if word not in stopword]
+#     print(stemmed_word)
+    return " ".join([ch for ch in stemmed_word])   
+
+
+#adding description to data set
+res_step3_data['description'] = res_step3_data['description'].apply(preprocess_description)
+similar_movie_dat['description'] = similar_movie_dat['description'].apply(preprocess_description)
 
 # changing to lower case so it can be compared without bias
 res_data['description'] = res_data['description'].str.lower()
 similar_movie_dat['description'] = similar_movie_dat['description'].str.lower()
 
+res_data = res_step3_data
 #create df with combined genre and description
 def get_comp_data(df):
     df_comb = pd.DataFrame()
     df_comb['comb']= df['genre'] + " " + df['description'].fillna("")
-    df_comb[['title','imdb_title_id','avg_vote']] = df[['title','imdb_title_id','avg_vote']]
     
     return df_comb
 
@@ -141,12 +165,12 @@ comb_genre_desc = (get_comp_data(res_data)).reset_index(drop=True)
 sim_comb_genre_desc = get_comp_data(similar_movie_dat)
 
 #getting words in description and genre for each movie in vector format to later compare using TD-IDF
-vectorizer = TfidfVectorizer(stop_words="english")
+vectorizer = TfidfVectorizer(min_df = 0.005, max_df = 0.97)
 
 temp = pd.DataFrame()
 temp = pd.concat([comb_genre_desc,sim_comb_genre_desc]).reset_index(drop=True) 
 vectorizer.fit(temp['comb'])
-description_matrix = vectorizer.transform(comb_genre_desc['comb'])
+description_matrix =  vectorizer.transform(comb_genre_desc['comb'])
 sim_description_matrix = vectorizer.transform(sim_comb_genre_desc['comb'])
 
 #finding cosine simlarity of the matrices b/w so far filtered movies and actual movie inputted
@@ -157,7 +181,7 @@ cos_sim = cosine_similarity(description_matrix, sim_description_matrix)
 cos_sim_max = np.amax(cos_sim, axis=1)
 cos_sim_max = np.reshape(cos_sim_max, (-1,1))
 
-cos_sim_max_final = np.append(cos_sim_max, comb_genre_desc[['avg_vote']], axis=1)
+cos_sim_max_final = np.append(cos_sim_max, res_data[['avg_vote']], axis=1)
 
 # finding weighted average of similarity and avg rating
 w = [0.6, 0.4]
@@ -166,12 +190,5 @@ final_comp = np.average(cos_sim_max_final, weights=w, axis=1)
 #get top k movies
 k = 10
 indices = (-final_comp).argsort()[:k]
-movies = comb_genre_desc['title'].iloc[indices]
+movies =  res_data['title'].iloc[indices]
 movies
-
-
-# In[ ]:
-
-
-
-
